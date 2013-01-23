@@ -11,6 +11,8 @@ Table of Content
   * [Change a  package to another version] (#change)
   * [Reset packages to the latest versions] (#reset)
   * [Search a package] (#search)
+* [Main Scripts] (#script)
+
  
 
 <a name="overview"/>
@@ -204,6 +206,17 @@ tophat                V2.0.6      /scratch/cqs/lij17/softwares/bin/tophat-2.0.6.
 tophat                V1.3.1      /scratch/cqs/lij17/softwares/bin/tophat-1.3.1.Linux_x86_64    Fast splice junction mapper for RNA-Seq reads
 ```
 
+
+<a name="script"/>
+
+Main scripts
+------------------------------------
+```
+* cqspkgs.sh/cqspkgs.csh    define the shell function cqspkgs
+* pkgscontrol               main function
+* var_modify                change shell environment avaiables in a session
+* config_template           create configure template for each package
+```
 
 
 
