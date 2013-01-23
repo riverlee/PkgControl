@@ -1,0 +1,416 @@
+#!/usr/bin/env perl
+###################################
+# Author: Jiang (River) Li
+# Email:  riverlee2008@gmail.com
+# Date:   Wed Jan 16 11:50:37 2013
+###################################
+# Desc:
+# The script is used to manipulate the software
+use strict;
+use warnings;
+use version;
+use Getopt::Long qw(:config no_ignore_case);
+
+#*STDOUT=*STDERR;
+my $config_dir="/scratch/cqs/lij17/softwares/config";
+my $key="";         #-s
+my $listall=0;      #-listall
+my $current=0;      #-current
+my $latest=0;       #-lastest
+my $reset=0;        #-reset
+my $help=0;         #-help
+my $name="";        #-c
+my $version="";     #-v
+
+my $format =  "%-20s  %-10s  %-60s  %-s\n";
+
+unless (GetOptions(
+        "d=s"=>\$config_dir,
+        "s=s"=>\$key,
+        "c=s"=>\$name,
+        "v=s"=>\$version,
+        "listall"=>\$listall,
+        "current"=>\$current,
+        "latest"=>\$latest,
+        "reset"=>\$reset,
+        "h|help"=>\$help))
+{
+    print $!,"\n";
+    usage(1);
+}
+
+check();
+
+my $shell_type=determine_shell();
+
+if($name ne "" && $version ne ""){
+    change($name,$version);
+}
+
+
+if($listall){
+    listall($config_dir,$format);
+}
+
+if($latest){
+    listlastest($config_dir,$format);
+}
+
+if($current){
+    current();
+}
+
+
+if($reset){
+    resetconfig();
+}
+
+if($key ne ""){
+    searching($config_dir,$format,$key);
+}
+
+
+
+sub check{
+    #if set parameter -c but no -v, or set the -v but not -c
+    if(($name ne ""  && $version eq "") || ($name eq "" && $version ne "")){
+        print STDERR "options -c <name> and -v <vesion> should be used together\n\n";
+        usage(1);
+    }
+
+    if($name ne "" && $version ne "" && $key ne ""){
+        print STDERR "options (-c name, -v version) and (-s key) could not be used together \n\n";
+        usage(1);
+    }
+
+    if($name ne "" && $version ne "" && ($listall || $current || $latest|| $reset)){
+        print STDERR "options (-c name, -v version) and (-listall, -current, -latest, -reset) could not be used together \n\n";
+        usage(1);
+    }
+
+    if($key ne ""  && ($listall || $current || $latest|| $reset)){
+        print STDERR "options (-s key ) and (-listall, -current, -latest, -reset) could not be used together \n\n";
+        usage(1);
+    }
+
+    #if set -d but dir is not exists
+    if(! -d $config_dir){
+        print STDERR "Config directory '$config_dir' is not exists\n\n";
+        usage(1);
+    }
+
+    #if set help
+    if($help){
+        usage(1);
+    }
+
+    #list all the software[-listall], [-crrent], -latest, -reset, should be only used one at once
+    if(($listall+$current+$latest+$reset)>1){
+        print STDERR "options (-listall, -current,-latest, -reset) could not be used together \n\n";
+        usage(1);
+    }
+    
+    #if no value defined print out USAGE
+    if($name eq "" && $key eq "" && $version eq "" && ! $listall && ! $current && ! $latest && ! $reset){
+        listall($config_dir,$format);
+        usage(1);
+    }
+
+}
+#Determine the shell type
+#sh for sh/ksh/bash (default)
+#while csh for csh/tcsh
+
+sub determine_shell{
+    my $shell_type="sh";
+    if(exists($ENV{SHELL}) && $ENV{SHELL}=~/csh$/){
+        $shell_type="csh";
+    }
+    return $shell_type;
+}
+
+
+#Change the softwares with provided name and version.
+sub change{
+    my ($name,$version) = @_;
+    
+    #Check whether software exits
+    my %hash=listall($config_dir,$format,1);
+    if(!exists($hash{$name})){
+        print STDERR "[Error] The softname named '$name' is not exists in the current configuration\n";
+        usage(1);
+    }
+    
+    my $flag=0; #if it changes to 1, means there is software with defined version
+    my $configfile="";
+    foreach my $ref (@{$hash{$name}}){
+        if ($ref->{'version'} eq $version){
+            $flag=1;
+            $configfile=$ref->{'config'};
+            last;
+        }
+    }
+    
+    #if exists softname with name and defined version
+    if($flag){
+        open(FD,">/tmp/config_pkg.$$") or die $!;
+        if ($shell_type eq "sh") {
+            print FD "#!/bin/sh --noprofile\n\n";
+        } else {
+            print FD "#!/bin/csh -f\n\n"; # moraj 041808
+        }
+        #Remove all the config for the this software.
+        foreach my $ref (@{$hash{$name}}){
+            print FD "eval \`$ref->{'config'} $shell_type del | tee -a /tmp/eval_pkg.$$\`\n";
+            print FD "\n";
+        }
+        #Add config
+        print FD "eval \`$configfile $shell_type add | tee -a /tmp/eval_pkg.$$\`\n";
+        print FD "\n";
+        print FD "cat /tmp/eval_pkg.$$\n";
+        close(FD);
+        chmod(0777,"/tmp/config_pkg.$$");
+        system("/tmp/config_pkg.$$");
+        unlink("/tmp/eval_pkg.$$");
+        unlink("/tmp/config_pkg.$$");
+    }else{
+        print STDERR "[Error] There is no such version '$version of the software '$name'\n";
+        usage(1);
+    }
+}
+
+sub resetconfig{
+    my %current = listlastest($config_dir,$format,1);
+    my %hash = listall($config_dir,$format,1);
+
+    open(FD,">/tmp/config_pkg.$$") or die $!;
+    if ($shell_type eq "sh") {
+        print FD "#!/bin/sh --noprofile\n\n";
+    } else {
+        print FD "#!/bin/csh -f\n\n"; # moraj 041808
+    }
+    #Remove all the config for the this software.
+    foreach my $name (sort keys %current){
+        foreach my $ref (@{$hash{$name}}){
+            print FD "eval \`$ref->{'config'} $shell_type del | tee -a /tmp/eval_pkg.$$\`\n";
+            print FD "\n";
+        }
+        #Add
+        if(exists($current{$name})){
+            my $configfile=$current{$name}->[0]->{'config'};
+            print FD "eval \`$configfile $shell_type add | tee -a /tmp/eval_pkg.$$\`\n";
+            print FD "\n";
+        }
+    }
+     print FD "cat /tmp/eval_pkg.$$\n";
+     close(FD);
+     chmod(0777,"/tmp/config_pkg.$$");
+     system("/tmp/config_pkg.$$");
+     unlink("/tmp/eval_pkg.$$");
+     unlink("/tmp/config_pkg.$$");
+}
+
+
+#provided a configure file
+#and add it to the CQS_PKG
+sub addconfig{
+    my ($configfile) = @_;
+    if(-e $configfile){
+        open(FD,">/tmp/config_pkg.$$") or die $!;
+        if ($shell_type eq "sh") {
+            print FD "#!/bin/sh --noprofile\n\n";
+        } else {
+            print FD "#!/bin/csh -f\n\n"; # moraj 041808
+        }
+        print FD "eval \`$configfile $shell_type add | tee -a /tmp/eval_pkg.$$\`\n";
+        print FD "\n";
+        print FD "cat /tmp/eval_pkg.$$\n";
+        close(FD);
+        chmod(0777,"/tmp/config_pkg.$$");
+        system("/tmp/config_pkg.$$");
+        #chmod(0777,"/tmp/eval_pkg.$$");
+        #system("$shell_type -c 'source /tmp/eval_pkg.$$'" );
+        unlink("/tmp/eval_pkg.$$");
+        unlink("/tmp/config_pkg.$$");
+    }
+}
+
+#Provide a configure file and remove it from the CQS_PKG
+sub removeconfig{
+    my ($configfile) = @_;
+    if(exists($ENV{'CQS_PKG'})){
+        foreach my $i (split /:/, $ENV{"CQS_PKG"}) {
+            if($configfile eq $i && -e $configfile){
+                open(FD,">/tmp/config_pkg.$$") or die $!;
+                if ($shell_type eq "sh") {
+                    print FD "#!/bin/sh --noprofile\n\n";
+                } else {
+                    print FD "#!/bin/csh -f\n\n"; # moraj 041808
+                }
+                print FD "eval \`$configfile $shell_type del | tee -a /tmp/eval_pkg.$$\`\n";
+                print FD "\n";
+                print FD "cat /tmp/eval_pkg.$$\n";
+                close(FD);
+                chmod(0777,"/tmp/config_pkg.$$");
+                system("/tmp/config_pkg.$$");
+                chmod(0777,"/tmp/eval_pkg.$$");
+                #system("/tmp/eval_pkg.$$");
+                unlink("/tmp/eval_pkg.$$");
+                unlink("/tmp/config_pkg.$$");
+           }
+       }
+    }else{
+        #Do nothing
+    }
+}
+
+sub usage{
+    my ($flag) = @_;
+
+    my $usage = <<USAGE;
+Usage: cqspkgs [-d DIR] [-s key ] [-listall ] [-current] [-latest]  [-reset ] [-c name] [-v version] [-h|-help]
+
+cqspkg manipulates the software between versions for cqs users
+================================================================
+-d DIR      Change the default package configure directory to DIR.
+-s key      Search softwares with your searching key
+-c name     Change the software with provided name and version (need to provide version by -v)
+-v version  Provide the software version
+-listall    List all avialable softwares
+-current    List current softwares used in your \$PATH
+-latest     List the latest softwares
+-reset      Set the softwares to the latest version
+-h|-help    display this help page
+
+USAGE
+    print STDERR  $usage;
+    if($flag){
+        exit(1);
+    }
+}
+
+
+
+sub current{
+    my ($flag) = @_;
+    #if provided the $flag, mean no output
+    my %hash;
+    if(exists($ENV{'CQS_PKG'})){
+        foreach my $f (split /:/, $ENV{"CQS_PKG"}) {
+            if(-e $f){
+                my ($name,$version,$desc,$base)=readconfig($f);
+                push @{$hash{$name}},{'version'=>$version,'desc'=>$desc,'base'=>$base,'config'=>$f};
+            }
+        }
+    }
+    print STDERR "All the current used softwares\n" unless ($flag);
+    printtable(%hash) unless ($flag);
+    return %hash;
+}
+
+
+
+sub printtable{
+    my (%hash) = @_;
+    #print "All the lastest softwares (default)\n";
+    printf STDERR $format, ("Name","Version","Base","Description");
+    print STDERR "=" x 100,"\n";
+    foreach my $name (sort keys %hash){
+        #foreach my $ref (@{$hash{$name}}){
+        my @refs = sort {version->parse(lc($b->{'version'}))<=>version->parse(lc($a->{'version'}))} @{$hash{$name}};
+        foreach my $ref (@refs){
+            printf STDERR $format,($name,$ref->{'version'},$ref->{'base'},$ref->{'desc'});
+        }
+    }
+    print STDERR "\n";
+}
+
+#List all the default software packages, which mean the latest versin if some packages have >1 version
+sub listlastest{
+    my ($config_dir,$format,$flag) = @_;
+    #if provided $flag, mean no output
+    my %hash;
+    my %current;
+    foreach my $f (glob("$config_dir/*")){
+        #print $f,"\n";
+        my ($name,$version,$desc,$base)=readconfig($f);
+        push @{$hash{$name}},{'version'=>$version,'desc'=>$desc,'base'=>$base,'config'=>$f};
+    }
+
+    foreach my $name (sort keys %hash){
+        #foreach my $ref (@{$hash{$name}}){
+        my @refs = sort {version->parse(lc($b->{'version'}))<=>version->parse(lc($a->{'version'}))} @{$hash{$name}};
+        push @{$current{$name}},$refs[0];
+    }
+    
+    print STDERR "All the lastest softwares\n" unless ($flag);
+    printtable(%current) unless ($flag);
+    return %current;
+}
+
+#Search with key word
+sub searching{
+    my ($config_dir,$format,$key,$flag) = @_;
+    #if provided $flag, mean no output
+    my %hash;
+    foreach my $f (glob("$config_dir/*")){
+        #print $f,"\n";
+        my ($name,$version,$desc,$base)=readconfig($f);
+        if($name=~/$key/i|| $desc=~/$key/i){
+            push @{$hash{$name}},{'version'=>$version,'desc'=>$desc,'base'=>$base,'config'=>$f};
+        }
+    }
+
+    print STDERR "All avaialbe softwares with searching key '$key' \n" unless ($flag);
+    printtable(%hash) unless ($flag);
+    return %hash;
+}
+#List all the software packages
+sub listall{
+    my ($config_dir,$format,$flag) = @_;
+    #if provided $flag, mean no output
+    my %hash;
+    foreach my $f (glob("$config_dir/*")){
+        #print $f,"\n";
+        my ($name,$version,$desc,$base)=readconfig($f);
+        push @{$hash{$name}},{'version'=>$version,'desc'=>$desc,'base'=>$base,'config'=>$f};
+    }
+    print STDERR "All avaialbe softwares\n" unless ($flag);
+    printtable(%hash) unless ($flag);
+    return %hash;
+}
+
+# Return values
+# name: program name
+# version: program version
+# desc: program brief description
+# base: program path
+sub readconfig{
+    my ($in) = @_;
+    my ($name,$version,$desc,$base)=("","","","");
+    open(IN,$in) or die $!;
+    while(<IN>){
+        if(/^#NAME/){
+            $name=$_;
+            $name=~s/^#NAME\s+|\r|\n//g;
+            next;
+        }
+        if(/^#VERSION/){
+            $version=$_;
+            $version=~s/^#VERSION\s+|\r|\n//g;
+            next;
+        }
+        if(/^#PKG/){
+            $desc=$_;
+            $desc=~s/^#PKG\s+|\r|\n//g;
+            next;
+        }
+        if(/^BASE/){
+            $base=$_;
+            $base=~s/^BASE=|\r|\n//g;
+            next;
+        }
+    }
+    close IN;
+    return($name,$version,$desc,$base);  
+}

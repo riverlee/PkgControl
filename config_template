@@ -1,0 +1,36 @@
+#!/usr/bin/env perl
+###################################
+# Author: Jiang (River) Li
+# Email:  riverlee2008@gmail.com
+# Date:   Wed Jan 16 11:14:07 2013
+###################################
+# Desc:   This script is used to create the packge template file
+use strict;
+use warnings;
+my $current="/scratch/cqs/lij17/softwares";
+
+while(<DATA>){
+    if(/^BASE/){
+        s/BASE.*?\n/BASE=$current\/bin\n/g;
+    }
+    print $_;
+}
+
+__DATA__
+#!/bin/sh
+#
+#NAME  name
+#
+#VERSION  version
+#
+#PKG  description
+#
+var_modify $* CQS_PKG "$0"
+
+BASE=??
+
+var_modify $* "PATH" $BASE
+var_modify $* "MANPATH" $BASE/man
+var_modify $* "LD_LIBRARY_PATH" $BASE/lib
+var_modify $* "PERL5LIB" $BASE/lib
+

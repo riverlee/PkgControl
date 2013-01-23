@@ -1,0 +1,86 @@
+#!/usr/bin/perl
+
+#########################################################
+#
+# var_modify - adds or deletes the given path to "variable"
+#
+# Format: var_modify {sh|csh} {add|del} variable path
+#
+#########################################################
+
+if ($#ARGV < 3) {
+print STDERR <<EOF
+
+var_modify {sh|csh} {add|del} VARIABLE PATH
+
+sh	   Output for bash/sh/ksh shells
+csh	   Output for csh/tcsh shells
+   
+add	   Add the "path" to the given "variable"
+del	   Remove the "path" from the "variable"
+
+VARIABLE   Variable to modify
+PATH	   Path to add or remove
+
+Examples:
+  Add /usr/local/bin to the search path for a BASH shell:
+
+	var_modify sh add PATH /usr/local/bin
+
+  Remove /usr/local/bin from the search path in a BASH shell:
+
+	var_modify sh del PATH /usr/local/bin
+
+EOF
+;
+
+exit(0);
+
+}
+
+my ($shell, $mode, $variable, $path) = @ARGV;
+
+#Quick shell check
+if (($shell ne "sh") && ($shell ne "csh")) {
+   print STDERR "var_modify:  Unknown Shell: $shell should be either sh or csh\n";
+   exit(0);
+}
+
+# If the variable doesn't exist switch to var_define and never return
+if (!exists($ENV{$variable})) {
+	#exec "/usr/local/bin/var_define @ARGV";
+    if ($shell eq "csh") {
+	print "if ( ! \${?$variable} ) setenv $variable \"\";\n";
+    }
+}
+
+if ($mode eq "add") {
+	if ($shell eq "sh") {
+		print "$variable=\"$path:\$$variable\";\nexport $variable;\n";
+	} else {
+		print "setenv $variable \"$path:\$$variable\";\n";
+	}
+
+} elsif ($mode eq "del") {
+	my $start = $ENV{$variable};
+	$ENV{$variable} =~ s/$path//g;
+       
+	#Scrub the path removing "/:" "::" and ":"'s at the ends of the path
+        $ENV{$variable} =~ s/\:+/\:/g;
+        $ENV{$variable} =~ s/\/\:/\:/g;
+        $ENV{$variable} =~ s/\/\:/\:/g;
+        $ENV{$variable} =~ s/^\://g;
+        $ENV{$variable} =~ s/\:$//g;
+
+	#Only print something if things changed
+	if ($start ne $ENV{$variable}) {
+		if ($shell eq "sh") {
+			print "$variable=\"$ENV{$variable}\";\nexport $variable;\n";
+		} else {
+			print "setenv $variable \"$ENV{$variable}\";\n";
+		}
+	}
+} else {
+	print STDERR "var_modify: Unknown mode: $mode  should be either add or del\n";
+	exit(1);
+}
